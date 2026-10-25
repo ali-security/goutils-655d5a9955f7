@@ -1,0 +1,68 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+      - name: Write module-zip helper (outside the module tree)
+        run: |
+          mkdir -p "$RUNNER_TEMP/zipper"
+          cat > "$RUNNER_TEMP/zipper/create_mod.go" <<'EOF'
+          package main
+
+          import (
+              "log"
+              "os"
+
+              "golang.org/x/mod/module"
+              "golang.org/x/mod/zip"
+          )
+
+          func main() {
+              if len(os.Args) != 5 {
+                  log.Fatal("usage: go run create_mod.go <module-path> <version> <source-dir> <output-zip>")
+              }
+              m := module.Version{Path: os.Args[1], Version: os.Args[2]}
+              f, err := os.Create(os.Args[4])
+              if err != nil {
+                  log.Fatal(err)
+              }
+              defer f.Close()
+              if err := zip.CreateFromDir(f, m, os.Args[3]); err != nil {
+                  log.Fatal(err)
+              }
+              log.Printf("created module zip: %s", os.Args[4])
+          }
+          EOF
+          cd "$RUNNER_TEMP/zipper"
+          go mod init example.com/zipper
+          go get golang.org/x/mod@v0.17.0
+      - name: Pack module zip
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/build_output"
+          # this build workflow is fork-only CI plumbing, not module content
+          rsync -a --exclude=.git --exclude=.github "$GITHUB_WORKSPACE/src/" "$RUNNER_TEMP/modsrc/"
+          cd "$RUNNER_TEMP/zipper"
+          go run create_mod.go github.com/Masterminds/goutils v1.1.0 "$RUNNER_TEMP/modsrc" "$GITHUB_WORKSPACE/build_output/v1.1.0.zip"
+          unzip -l "$GITHUB_WORKSPACE/build_output/v1.1.0.zip"
+      - name: Build
+        working-directory: src
+        # pre-module release (no go.mod): build in GOPATH mode
+        env:
+          GO111MODULE: 'off'
+        run: go build -v .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: module-zip
+          path: build_output/v1.1.0.zip

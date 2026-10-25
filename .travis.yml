@@ -4,7 +4,14 @@ go:
   - 1.6
   - 1.7
   - 1.8
-  - tip
+  - 1.11
+
+before_install:
+  - if ! go version | grep -q "go${TRAVIS_GO_VERSION} "; then mkdir -p $HOME/go-manual && curl -sSL https://dl.google.com/go/go${TRAVIS_GO_VERSION}.linux-amd64.tar.gz | tar -C $HOME/go-manual -xz && export GOROOT=$HOME/go-manual/go && export PATH=$GOROOT/bin:$PATH; fi
+  - go version
+
+install:
+  - go build -v .
 
 script:
   - go test -v
